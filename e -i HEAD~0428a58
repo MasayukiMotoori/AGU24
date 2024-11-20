@@ -1,0 +1,37 @@
+[33med17577[m[33m ([m[1;36mHEAD[m[33m -> [m[1;32mmain[m[33m)[m removed some files
+[33m1f4c024[m removed some files
+[33m0428a58[m simpegemip, ramp time, plots of fields simulation and model
+[33mb1123a0[m[33m ([m[1;31mupstream/main[m[33m)[m simpeg inversion frame work wrap empymod
+[33mcdee25b[m changed gif not to loop
+[33m2e782ec[m Merge branch 'main' of https://github.com/MasayukiMotoori/AGU24 :wq
+[33m44c15cf[m emip simulation and animation
+[33mc562f20[m Delete 11_Validation_simpegEMIP_data.npy
+[33m68e816d[m Merge read me ranch 'main' of https://github.com/MasayukiMotoori/AGU24
+[33m6597583[m fields polot about IP
+[33mabf4b2c[m Update README.md
+[33m81094b4[m inversion notebook gif updated
+[33mb35f94b[m Merge branch 'main' of https://github.com/MasayukiMotoori/AGU24
+[33m4578bb8[m change local folder
+[33m84365fd[m Delete 22_plotfields_con.mp4
+[33md992ceb[m Delete 22_plotfields_con_reduced.mp4
+[33mefbee8d[m Delete Media1.mp4
+[33mebf6c5a[m change local folder
+[33me9e62ec[m change local folder
+[33m2f9a680[m Remove 22_plotfields_con.mp4 from repository
+[33med1f27b[m Delete 42_Inversion_,mound.ipynb
+[33m9809fe9[m Add 42_Inversion_mound.ipynb and 42_inversion_mound_inverted.png
+[33ma1a7ff2[m Inversion for mound model updated
+[33mbe83111[m animation gif
+[33m5e57147[m reduced video 2
+[33m0492c9d[m reduced video
+[33m0e1ad17[m Add large file
+[33m1f6b27f[m video
+[33m615ead9[m used mkl version 2019
+[33m7597bde[m Error
+[33m3c1911b[m inversion
+[33m6827da4[m jupytor notebook updated
+[33me35edd0[m vector field illustration
+[33m437cc30[m convergence study
+[33m2ee8063[m Jupyter notebook about convergence study
+[33mae3212c[m Update README.md
+[33mf6e884e[m Initial commit
