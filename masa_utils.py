@@ -1158,10 +1158,7 @@ class PsuedoLog:
     def semiply(self, x, y, logmin=None, linScale=None, ax=None, xscale_log=True,**kwargs):
         if ax is None:
             fig, ax = plt.subplots(1, 1)
-            
-        if len(x) > 1:
-            assert np.all(np.diff(x) >= 0), "Time values must be in ascending order."
-        
+
         logmin = self.get_param(logmin, self.logmin)
         linScale = self.get_param(linScale, self.linScale)
         plog_y = self.pl_value(lin=y, logmin=logmin, linScale=linScale)
@@ -1172,7 +1169,6 @@ class PsuedoLog:
             "linewidth": 1.0,
             "marker": None,
             "markersize": 1,
-            "label": "pl_plot",
         }
         default_kwargs.update(kwargs)
         if xscale_log:
@@ -1180,8 +1176,8 @@ class PsuedoLog:
         else:
             ax.plot(x, plog_y, **default_kwargs)
         
-        self.max_y = max([self.max_y, max(y)])
-        self.min_y = min([self.min_y, min(y)])
+        self.max_y = np.max(np.r_[self.max_y,np.max(y)])
+        self.min_y = np.min(np.r_[self.min_y,np.min(y)])
         return ax
 
 
@@ -1190,8 +1186,6 @@ class PsuedoLog:
             fig, ax = plt.subplots(1, 1)
         logminx = self.get_param(logminx, self.logminx)    
         linScalex = self.get_param(linScalex, self.linScalex)
-        if len(x) > 1:
-            assert np.all(np.diff(x) >= 0), "Time values must be in ascending order."
         plog_x = self.pl_value(lin=x, logmin=logminx, linScale=linScalex)
 
         default_kwargs = {
@@ -1200,23 +1194,20 @@ class PsuedoLog:
             "linewidth": 1.0,
             "marker": None,
             "markersize": 1,
-            "label": "pl_plot",
         }
         default_kwargs.update(kwargs)
         if yscale_log:
             ax.semilogy(plog_x, y, **default_kwargs)
         else:
             ax.plot(plog_x, y, **default_kwargs)
-        self.max_x = max([self.max_x,max(x)])
-        self.min_x = min([self.min_x,min(x)])
+        self.max_x = np.max(np.r_[self.max_x,np.max(x)])
+        self.min_x = np.min(np.r_[self.min_x,np.min(x)])
         return ax
 
     def plpl_plot(self, x, y,
         logminx=None,linScalex=None,logmin=None,linScale=None,ax=None,**kwargs):
         if ax is None:
             fig, ax = plt.subplots(1, 1)
-        if len(x) > 1:
-            assert np.all(np.diff(x) >= 0), "Time values must be in ascending order."
         logmin = self.get_param(logmin, self.logmin)    
         linScale = self.get_param(linScale, self.linScale)
         logminx = self.get_param(logminx, self.logminx)
@@ -1230,14 +1221,13 @@ class PsuedoLog:
             "linewidth": 1.0,
             "marker": None,
             "markersize": 1,
-            "label": "pl_plot",
         }
         default_kwargs.update(kwargs)
         ax.plot(plog_x, plog_y, **default_kwargs)
-        self.max_y = max([self.max_y,max(y)])
-        self.min_y = min([self.min_y,min(y)])
-        self.max_x = max([self.max_x,max(x)])
-        self.min_x = min([self.min_x,min(x)])
+        self.max_y = np.max(np.r_[self.max_y,np.max(y)])
+        self.min_y = np.min(np.r_[self.min_y,np.min(y)])
+        self.max_x = np.max(np.r_[self.max_x,np.max(x)])
+        self.min_x = np.min(np.r_[self.min_x,np.min(x)])
         return ax
 
     def pl_axes(self,ax,logmin=None,linScale=None,max_y=None,min_y=None):
@@ -1251,7 +1241,7 @@ class PsuedoLog:
         if max_y <= logmin:
             n_postick = 1
         else:
-            n_postick= int(np.ceil(np.log10((max_y+eps)/logmin)+1.1))
+            n_postick= int(np.ceil(np.log10((max_y+eps)/logmin)+1))
         posticks = linScale + np.arange(n_postick)
         #poslabels = logmin*10**np.arange(n_postick)
         poslabels = [f"{v:.0e}" for v in (logmin * 10**np.arange(n_postick))]
@@ -1259,7 +1249,7 @@ class PsuedoLog:
         if -min_y <= logmin:
             n_negtick = 1
         else:
-            n_negtick = int(np.ceil(np.log10((-min_y+eps)/logmin)+1.1))
+            n_negtick = int(np.ceil(np.log10((-min_y+eps)/logmin)+1))
 
         negticks = -linScale - np.arange(n_negtick)
         negticks = negticks[::-1]
