@@ -608,36 +608,290 @@ class empymod_IPinv:
         f_obj = phid + beta * phim
         return f_obj, phid, phim
 
-    def plot_model(self, model, ax, color='C0',linestyle='-', label="model", linewidth=1, depth_min=-100):
-        depth = np.r_[depth_min+self.model_base["depth"][0], self.model_base["depth"]]
+    # def plot_model(self, model, depth_min=-100,ax=None, **kwargs):
+    #     if ax is None:
+    #         fig, ax = plt.subplots(1, 1)
+
+    #     default_kwargs = {
+    #         "linestyle": "-",
+    #         "color": "orange",
+    #         "linewidth": 1.0,
+    #         "marker": None,
+    #         "label": "model",
+    #     }
+    #     default_kwargs.update(kwargs)
+    #     depth = np.r_[depth_min+self.model_base["depth"][0], self.model_base["depth"]]
+    #     depth_plot = np.vstack([depth, depth]).flatten(order="F")[1:]
+    #     depth_plot = np.hstack([depth_plot, depth_plot[-1] * 1.5])
+    #     model_plot = np.vstack([model, model]).flatten(order="F")
+    #     ax.plot(model_plot, depth_plot,**kwargs)
+    #     return ax
+    def plot_model(self, model, depth_min=-100, ax=None, **kwargs):
+        """
+        Plot a single model (e.g., resistivity, chargeability) with depth.
+        """
+        if ax is None:
+            fig, ax = plt.subplots(1, 1)
+
+        # Default plotting parameters
+        default_kwargs = {
+            "linestyle": "-",
+            "color": "orange",
+            "linewidth": 1.0,
+            "marker": None,
+            "label": "model",
+        }
+        default_kwargs.update(kwargs)
+
+        # Prepare depth and model data for plotting
+        depth = np.r_[depth_min + self.model_base["depth"][0], self.model_base["depth"]]
         depth_plot = np.vstack([depth, depth]).flatten(order="F")[1:]
-        depth_plot = np.hstack([depth_plot, depth_plot[-1] * 1.5])
+        depth_plot = np.hstack([depth_plot, depth_plot[-1] * 1.5])  # Extend depth for plot
         model_plot = np.vstack([model, model]).flatten(order="F")
-        ax.plot(model_plot, depth_plot,
-             color=color, linestyle=linestyle, label=label,  linewidth=linewidth)
+
+        # Plot model with depth
+        ax.plot(model_plot, depth_plot, **default_kwargs)
         return ax
+    
+    def plot_IP_par(self, mvec, ax=None, label=None, **kwargs):
+        """
+        Plot all IP parameters (resistivity, chargeability, time constant, exponent c).
+        """
+        if ax is None:
+            fig, ax = plt.subplots(2, 2, figsize=(12, 8))  # Create 2x2 grid of subplots
+        else:
+            ax = ax.flatten()  # Ensure ax is a flat array
 
-    def plot_IP_par(self,mvec,color="orange", linestyle='-', label="",  linewidth=1.0,ax=None):
-        if ax == None:
-            fig, ax = plt.subplots(2, 2, figsize=(12, 8))
-
-        # convert model vector to model
+        # Convert model vector to parameters
         model = self.get_ip_model(mvec)
 
-    #    plot_model_m(model_base["depth"], model_ip["res"], ax[0], "resistivity","k")
-        self.plot_model(model["res"], ax[0], color, linestyle=linestyle,label=label, linewidth=linewidth)
+        # Plot each model parameter
+        self.plot_model(model["res"], ax=ax[0], label=label, **kwargs)
+        ax[0].set_title("Resistivity (ohm-m)")
 
-        self.plot_model(model["m"], ax[1], color, linestyle=linestyle,label=label, linewidth=linewidth)
+        self.plot_model(model["m"], ax=ax[1], label=label, **kwargs)
+        ax[1].set_title("Chargeability")
 
-        self.plot_model(model["tau"], ax[2],  color, linestyle=linestyle, label=label, linewidth=linewidth)
+        self.plot_model(model["tau"], ax=ax[2], label=label, **kwargs)
+        ax[2].set_title("Time Constant (s)")
 
-        self.plot_model(model["c"]  , ax[3],  color, linestyle=linestyle, label=label, linewidth=linewidth)
-
-        ax[0].set_title("model_resistivity(ohm-m)")
-        ax[1].set_title("model_changeability")
-        ax[2].set_title("model_time_constant(sec)")
-        ax[3].set_title("model_exponent_c")
+        self.plot_model(model["c"], ax=ax[3], label=label, **kwargs)
+        ax[3].set_title("Exponent c")
         return ax
+
+class InducedPolarization:
+
+    def __init__(self,
+        res0=None, con8=None, eta=None, tau=None, c=None,
+        freq=None, times=None, windows_strt=None, windows_end=None
+        ):
+
+        if res0 is not None and con8 is not None and eta is not None:
+            assert np.allclose(con8 * res0 * (1 - eta), 1.)
+        self.con8 = con8
+        self.res0 = res0
+        self.eta = eta
+        if self.res0 is None and self.con8 is not None and self.eta is not None:
+            self.res0 = 1./ (self.con8 * (1. - self.eta))
+        if self.res0 is not None and self.con8 is None and self.eta is not None:
+            self.con8 = 1./ (self.res0 * (1. - self.eta))
+        self.tau = tau
+        self.c = c
+        self.freq = freq
+        self.times = times
+        self.windows_strt = windows_strt
+        self.windows_end = windows_end
+
+    def validate_times(self, times):
+        assert np.all(times >= -eps ), "All time values must be non-negative."
+        if len(times) > 1:
+            assert np.all(np.diff(times) >= 0), "Time values must be in ascending order."
+    
+    def get_param(self, param, default):
+        return param if param is not None else default
+
+    def pelton_res_f(self, freq=None, res0=None, eta=None, tau=None, c=None):
+        freq = self.get_param(freq, self.freq)
+        res0 = self.get_param(res0, self.res0)
+        eta = self.get_param(eta, self.eta)
+        tau = self.get_param(tau, self.tau)
+        c = self.get_param(c, self.c)
+        iwtc = (1.j * 2. * np.pi * freq*tau) ** c
+        return res0*(1.-eta*(1.-1./(1. + iwtc)))
+
+    def pelton_con_f(self, freq=None, con8=None, eta=None, tau=None, c=None):
+        freq = self.get_param(freq, self.freq)
+        con8 = self.get_param(con8, self.res0)
+        eta = self.get_param(eta, self.eta)
+        tau = self.get_param(tau, self.tau)
+        c = self.get_param(c, self.c)
+        iwtc = (1.j * 2. * np.pi * freq*tau) ** c
+        return con8-con8*(eta/(1.+(1.-eta)*iwtc))
+
+    def debye_con_t(self, times=None, con8=None, eta=None, tau=None):
+        times = self.get_param(times, self.times)
+        con8 = self.get_param(con8, self.res0)
+        eta = self.get_param(eta, self.eta)
+        tau = self.get_param(tau, self.tau)
+        self.validate_times(times)            
+        debye = np.zeros_like(times)
+        ind_0 = (times == 0)
+        debye[ind_0] = 1.0
+        debye[~ind_0] = -eta/((1.0-eta)*tau)*np.exp(-times[~ind_0]/((1.0-eta)*tau))
+        return con8*debye
+
+    def debye_con_t_intg(self, times=None, con8=None, eta=None, tau=None):
+        times = self.get_param(times, self.times)
+        con8 = self.get_param(con8, self.res0)
+        eta = self.get_param(eta, self.eta)
+        tau = self.get_param(tau, self.tau)
+        self.validate_times(times)            
+        return con8 *(1.0 -eta*(1. -np.exp(-times/((1.0-eta)*tau))))
+
+    def debye_res_t(self, times=None, res0=None, eta=None, tau=None):
+        times = self.get_param(times, self.times)
+        res0 = self.get_param(res0, self.res0)
+        eta = self.get_param(eta, self.eta)
+        tau = self.get_param(tau, self.tau)
+        self.validate_times(times)            
+        debye = np.zeros_like(times)
+        res8 = res0 * (1.0 - eta)
+        ind_0 = (times == 0)
+        debye[ind_0] = res8 
+        debye[~ind_0] = (res0-res8)/tau * np.exp(-times[~ind_0] / tau)
+        return debye
+
+    def debye_res_t_intg(self, times=None, res0=None, eta=None, tau=None):
+        times = self.get_param(times, self.times)
+        res0 = self.get_param(res0, self.res0)
+        eta = self.get_param(eta, self.eta)
+        tau = self.get_param(tau, self.tau)
+        self.validate_times(times)            
+        res8 = res0 * (1.0 - eta)
+        return res8 + (res8 - res0)*(np.exp(-times/tau) - 1.0)
+
+    def freq_symmetric(self,f):
+        symmetric = np.zeros_like(f, dtype=complex)
+        nstep = len(f)
+        half_step = nstep // 2
+        symmetric[:half_step] = f[:half_step]
+        symmetric[half_step:] = f[:half_step].conj()[::-1]
+        assert np.allclose(symmetric[:half_step].real, symmetric[half_step:].real[::-1])
+        assert np.allclose(symmetric[:half_step].imag, -symmetric[half_step:].imag[::-1])
+        return symmetric
+
+    def get_frequency_tau(self, tau=None, log2nfreq=16): 
+        tau = self.get_param(tau, self.tau)
+        log2nfreq = int(log2nfreq)
+        nfreq = 2**log2nfreq
+        freqcen = 1 / tau
+        freqend = freqcen * nfreq**0.5
+        freqstep = freqend / nfreq
+        freq = np.arange(0, freqend, freqstep)
+        self.freq = freq
+        print(f'log2(len(freq)) {np.log2(len(freq))} considering tau')
+        return freq
+
+    def get_frequency_tau2(self, tau=None, log2min=-8, log2max=8):
+        tau = self.get_param(tau, self.tau)
+        freqcen = 1 / tau
+        freqend = freqcen * 2**log2max
+        freqstep = freqcen * 2**log2min
+        freq = np.arange(0, freqend, freqstep)
+        self.freq = freq
+        print(f'log2(len(freq)) {np.log2(len(freq))} considering tau')
+        return freq
+
+
+    def get_frequency_tau_times(self, tau=None, times=None,log2min=-8, log2max=8):
+        tau = self.get_param(tau, self.tau)
+        times = self.get_param(times, self.times)
+        self.validate_times(times)
+        _, windows_end = self.get_windows(times)
+
+        freqstep = 1/tau*(2**np.floor(np.min(
+            np.r_[log2min,np.log2(tau/windows_end[-1])]
+        )))
+        freqend = 1/tau*(2**np.ceil(np.max(
+            np.r_[log2max, np.log2(2*tau/min(np.diff(times)))]
+        )))
+        freq = np.arange(0,freqend,freqstep)
+        self.freq=freq
+        print(f'log2(freq) {np.log2(len(freq))} considering tau and times')
+        return freq
+
+    def compute_fft(self, fft_f, freqend, freqstep):
+        fft_f = self.freq_symmetric(fft_f)
+        fft_data = fftpack.ifft(fft_f).real * freqend
+        fft_times = np.fft.fftfreq(len(fft_data), d=freqstep)
+        return fft_times[fft_times > -eps], fft_data[fft_times > -eps]
+
+    def pelton_fft(self, con_form=True, con8=None, res0=None, eta=None, tau=None, c=None, freq=None):
+        res0 = self.get_param(res0, self.res0)
+        eta = self.get_param(eta, self.eta)
+        tau = self.get_param(tau, self.tau)
+        c = self.get_param(c, self.c) 
+        freq = self.get_param(freq, self.freq) 
+        freqstep = freq[1] - freq[0]
+        freqend = freq[-1] +freqstep
+
+        if con_form:
+            con8 = self.get_param(con8, self.con8)
+            fft_f = self.pelton_con_f(freq=freq,
+                     con8=con8, eta=eta, tau=tau, c=c)
+        else:
+            res0 = self.get_param(res0, self.res0)
+            fft_f = self.pelton_res_f(freq=freq,
+                     res0=res0, eta=eta, tau=tau, c=c)
+        fft_times, fft_data = self.compute_fft(fft_f, freqend, freqstep)
+        return fft_times, fft_data
+
+    def get_windows(self, times):
+        self.validate_times(times)
+        windows_strt = np.zeros_like(times)
+        windows_end = np.zeros_like(times)
+        dt = np.diff(times)
+        windows_strt[1:] = times[:-1] + dt / 2
+        windows_end[:-1] = times[1:] - dt / 2
+        windows_strt[0] = times[0] - dt[0] / 2
+        windows_end[-1] = times[-1] + dt[-1] / 2
+        self.windows_strt = windows_strt
+        self.windows_end = windows_end
+        return windows_strt,windows_end
+
+    def apply_windows(self, times, data, windows_strt=None, windows_end=None):
+        if windows_strt is None:
+            windows_strt = self.windows_strt
+        if windows_end is None:
+            windows_end = self.windows_end
+        self.validate_times(times)
+
+        # Find bin indices for start and end of each window
+        start_indices = np.searchsorted(times, windows_strt, side='left')
+        end_indices = np.searchsorted(times, windows_end, side='right')
+
+        # Compute windowed averages
+        window_data = np.zeros_like(windows_strt, dtype=float)
+        for i, (start, end) in enumerate(zip(start_indices, end_indices)):
+            if start < end:  # Ensure there are elements in the window
+                window_data[i] = np.mean(data[start:end])
+
+        return window_data
+
+    def get_window_matrix (self, times, windows_strt=None, windows_end=None):
+        windows_strt = self.get_param(windows_strt, self.windows_strt)
+        windows_end = self.get_param(windows_end, self.windows_end)
+        self.validate_times(times)
+        nwindows = len(windows_strt)
+        window_matrix = np.zeros((nwindows, len(times)))
+        for i in range(nwindows):
+            start = windows_strt[i]
+            end = windows_end[i]
+            ind_time = (times >= start) & (times <= end)
+            if ind_time.sum() > 0:
+                window_matrix[i, ind_time] = 1/ind_time.sum()
+        return window_matrix    
+    
 
 class TEM_Signal_Process:
     
@@ -852,7 +1106,7 @@ class TEM_Signal_Process:
         return filt
 
 class PsuedoLog:
-    def __init__(self, logmin, linScale, max_y=eps, min_y=-eps,
+    def __init__(self, logmin=None, linScale=None, max_y=eps, min_y=-eps,
         logminx=None, linScalex=None, max_x=eps, min_x=-eps):
         self.logmin = logmin
         self.linScale = linScale
@@ -901,7 +1155,7 @@ class PsuedoLog:
         lin[ind_lin] = plog[ind_lin] / linScale * logmin
         return lin
 
-    def semiply(self, x, y, logmin=None, linScale=None, ax=None, **kwargs):
+    def semiply(self, x, y, logmin=None, linScale=None, ax=None, xscale_log=True,**kwargs):
         if ax is None:
             fig, ax = plt.subplots(1, 1)
             
@@ -921,15 +1175,17 @@ class PsuedoLog:
             "label": "pl_plot",
         }
         default_kwargs.update(kwargs)
-        
-        ax.semilogx(x, plog_y, **default_kwargs)
+        if xscale_log:
+            ax.semilogx(x, plog_y, **default_kwargs)
+        else:
+            ax.plot(x, plog_y, **default_kwargs)
         
         self.max_y = max([self.max_y, max(y)])
         self.min_y = min([self.min_y, min(y)])
         return ax
 
 
-    def semiplx(self, x, y,logminx=None,linScalex=None,ax=None, **kwargs):
+    def semiplx(self, x, y,logminx=None,linScalex=None,ax=None, yscale_log=True,**kwargs):
         if ax is None:
             fig, ax = plt.subplots(1, 1)
         logminx = self.get_param(logminx, self.logminx)    
@@ -947,9 +1203,10 @@ class PsuedoLog:
             "label": "pl_plot",
         }
         default_kwargs.update(kwargs)
-        
-        ax.semilogx(plog_x, y, **default_kwargs)
-
+        if yscale_log:
+            ax.semilogy(plog_x, y, **default_kwargs)
+        else:
+            ax.plot(plog_x, y, **default_kwargs)
         self.max_x = max([self.max_x,max(x)])
         self.min_x = min([self.min_x,min(x)])
         return ax
@@ -984,6 +1241,8 @@ class PsuedoLog:
         return ax
 
     def pl_axes(self,ax,logmin=None,linScale=None,max_y=None,min_y=None):
+        assert hasattr(ax, 'set_xlim') and hasattr(ax, 'set_xticks') and hasattr(ax, 'set_xticklabels'), \
+        "Provided 'ax' is not a valid Matplotlib Axes object."
         logmin = self.get_param(logmin, self.logmin)    
         linScale = self.get_param(linScale, self.linScale)
         max_y = self.get_param(max_y, self.max_y)
@@ -1019,6 +1278,8 @@ class PsuedoLog:
         return ax
 
     def pl_axes_x(self,ax,logminx=None,linScalex=None,max_x=None,min_x=None):
+        assert hasattr(ax, 'set_xlim') and hasattr(ax, 'set_xticks') and hasattr(ax, 'set_xticklabels'), \
+        "Provided 'ax' is not a valid Matplotlib Axes object."
         logminx = self.get_param(logminx, self.logminx)    
         linScalex = self.get_param(linScalex, self.linScalex)
         max_x = self.get_param(max_x, self.max_x)
@@ -1044,6 +1305,30 @@ class PsuedoLog:
         # reset max and min
         self.max_x = eps
         self.min_x = -eps
+        return ax
+    
+    def pl_axvline(self, ax, x, **kwargs):
+        logminx = self.logminx
+        linScalex = self.linScalex
+        default_kwargs = {
+            "linestyle": "--",
+            "color": "gray",
+            "linewidth": 1.0,
+        }
+        default_kwargs.update(kwargs)
+        ax.axvline(self.pl_value(x,logmin=logminx, linScale=linScalex), **default_kwargs)
+        return ax
+    
+    def pl_axhline(self, ax, y, **kwargs):
+        logmin = self.logmin
+        linScale = self.linScale
+        default_kwargs = {
+            "linestyle": "--",
+            "color": "gray",
+            "linewidth": 1.0,
+        }
+        default_kwargs.update(kwargs)
+        ax.axhline(self.pl_value(y, logmin=logmin,linScale=linScale), **default_kwargs)
         return ax
 
 def solve_polynomial(a, n,pmax):
@@ -1086,7 +1371,3 @@ def mesh_Pressure_Vessel(tx_radius,cs1,ncs1, pad1max,cs2,max,lim,pad2max):
     h2b = discretize.utils.unpack_widths([(cs2, npad2, pad2)])
     h = np.r_[h1a,h1bc,h2a,h2b]
     return h
-
-
-
-
