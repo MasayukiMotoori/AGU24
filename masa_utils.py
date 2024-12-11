@@ -18,22 +18,29 @@ import  os
 eps= np.finfo(float).eps
 
 class TikonovInversion:
-    def __init__(self, G_f, Wd, Wx=None, m_ref=None,Prj_m=None,m_fix=None,sparse_matrix=False):  
+    def __init__(self, G_f, Wd, alphax=1.,Wx=None,
+        alphas=1., Ws=None, m_ref=None,Proj_m=None,m_fix=None,
+        sparse_matrix=False
+        ):  
         self.G_f = G_f
         self.Wd = Wd
+        self.Wx = Wx
+        self.Ws = Ws
         self.nD = G_f.shape[0]
         self.nP = G_f.shape[1]
-        self.Wx = self.get_Wx()
-        self.m_ref = m_ref
-        self.Prj_m = Prj_m  
+        self.alphax = alphax
+        self.Proj_m = Proj_m  
         self.m_fix = m_fix
-        if Prj_m is not None:
-            assert Prj_m.shape[0] == self.nP
-            self.nM = Prj_m.shape[1]
+        if Proj_m is not None:
+            assert Proj_m.shape[0] == self.nP
+            self.nM = Proj_m.shape[1]
         else:
             self.Proj_m = np.eye(self.nP)
             self.nM = self.nP
             self.m_fix = np.zeros(self.nP)
+        self.alphas = alphas
+        self.m_ref=m_ref
+
         self.sparse_matrix = sparse_matrix
     
     def get_Wx(self):
@@ -42,33 +49,51 @@ class TikonovInversion:
         element = np.ones(nP-1)
         Wx[:,:-1] = np.diag(element)
         Wx[:,1:] += np.diag(-element)
+        self.Wx = Wx
         return Wx
+    
+    def get_Ws(self):
+        nM = self.nM
+        Ws = np.eye(nM)
+        self.Ws=  Ws
+        return Ws
 
     def recover_model(self, dobs, beta, sparse_matrix=False):
-   
         # This is for the mapping 
         G_f = self.G_f
         Wd = self.Wd
+        alphax = self.alphax
+        alphas = self.alphas
         Wx = self.Wx
-        Prj_m = self.Prj_m
+        Ws = self.Ws
+        m_ref= self.m_ref
+        Proj_m = self.Proj_m
         m_fix= self.m_fix
         sparse_matrix = self.sparse_matrix
         
-        left =(Prj_m.T @G_f.T @ Wd.T @ Wd @ G_f@Prj_m
-             + beta *Prj_m.T @Wx.T @ Wx@Prj_m)
+        left = Proj_m.T @G_f.T @ Wd.T @ Wd @ G_f@Proj_m
+        left += beta * alphax * (Proj_m.T @Wx.T @ Wx@Proj_m) 
+        if m_ref is not None:
+            left += beta * alphas * (Ws.T @ Ws)
         if sparse_matrix:
             left = csr_matrix(left)
-        right = ( G_f.T @ Wd.T @Wd@ dobs@Prj_m
-                 -m_fix.T@G_f.T@Wd.T@Wd@G_f@Prj_m
-                 -beta* m_fix.T@Wx.T@Wx@Prj_m)
+        right =   G_f.T @ Wd.T @Wd@ dobs@Proj_m
+        right += -m_fix.T@G_f.T@Wd.T@Wd@G_f@Proj_m
+        right+= -beta*alphax* m_fix.T@Wx.T@Wx@Proj_m
+        if m_ref is not None:
+            right+= beta*alphas*m_ref.T@Ws.T@Ws
         m_rec = np.linalg.solve(left, right)
         #filt_curr = spsolve(left, right)
-        rd = Wd@(G_f@Prj_m@m_rec-dobs)
-        rm = Wx@Prj_m@m_rec
+        rd = Wd@(G_f@Proj_m@m_rec-dobs)
+        rmx = alphax*Wx@Proj_m@m_rec
+        if m_ref is not None:
+            rms = alphas*Ws@(m_rec-m_ref)
 
         phid = 0.5 * np.dot(rd, rd)
-        phim = 0.5 * np.dot(rm,rm)
-        p_rec = m_fix + Prj_m@m_rec
+        phim = 0.5 * np.dot(rmx,rmx)
+        if m_ref is not None:
+            phim+=0.5 * np.dot(rms,rms)
+        p_rec = m_fix + Proj_m@m_rec
         return p_rec, phid, phim
     
     def tikonov_inversion(self,beta_values, dobs):
@@ -82,19 +107,26 @@ class TikonovInversion:
             mrec_tik[:, i], phid_tik[i], phim_tik[i] = self.recover_model(
             dobs=dobs, beta=beta)
         return mrec_tik, phid_tik, phim_tik
+
     
     def estimate_beta_range(self, num=20, eig_tol=1e-12):
         G_f = self.G_f
+        alphax=self.alphax
+        alphas=self.alphas
+       
         Wd = self.Wd
         Wx = self.Wx
-        Proj_m = self.Prj_m  # Use `Proj_m` to map the model space
+        Ws= self.Ws
+        Proj_m = self.Proj_m  # Use `Proj_m` to map the model space
 
         # Effective data misfit term with projection matrix
         A_data = Proj_m.T @ G_f.T @ Wd.T @ Wd @ G_f @ Proj_m
         eig_data = np.linalg.eigvalsh(A_data)
         
         # Effective regularization term with projection matrix
-        A_reg = Proj_m.T @ Wx.T @ Wx @ Proj_m
+        A_reg = alphax* Proj_m.T @ Wx.T @ Wx @ Proj_m
+        if Ws is not None:
+            A_reg += alphas * (Ws.T @ Ws)
         eig_reg = np.linalg.eigvalsh(A_reg)
         
         # Ensure numerical stability (avoid dividing by zero)
@@ -108,6 +140,61 @@ class TikonovInversion:
         # Generate 20 logarithmically spaced beta values
         beta_values = np.logspace(np.log10(beta_min), np.log10(beta_max), num=num)
         return beta_values
+
+class projection_convex_set:
+    def __init__(self,maxiter=100, tol=1e-2,
+        lower_bound=None, upper_bound=None, a=None, b=None):
+        self.maxiter = maxiter
+        self.tol = tol
+        self.lower_bound = lower_bound
+        self.upper_bound = upper_bound
+        self.a = a
+        self.b = b
+
+    def get_param(self, param, default):
+        return param if param is not None else default
+        
+    def projection_halfspace(self, a, x, b):
+        a = self.get_param(a, self.a)
+        b = self.get_param(b, self.b)
+        projected_x = x + a * ((b - np.dot(a, x)) / np.dot(a, a)) if np.dot(a, x) > b else x
+        # Ensure scalar output if input x is scalar
+        if np.isscalar(x):
+            return float(projected_x)
+        return projected_x
+
+    def projection_plane(self, a, x, b):
+        a = self.get_param(a, self.a)
+        b = self.get_param(b, self.b)
+        projected_x = x + a * ((b - np.dot(a, x)) / np.dot(a, a))
+        # Ensure scalar output if input x is scalar
+        if np.isscalar(x):
+            return float(projected_x)
+        return projected_x
+
+    def clip_model(self, x, lower_bound=None, upper_bound=None):
+        lower_bound = self.get_param(lower_bound, self.lower_bound)
+        upper_bound = self.get_param(upper_bound, self.upper_bound)
+        clipped_x = np.clip(x, self.lower_bound, self.upper_bound)
+        return clipped_x
+
+    def proj_c(self,x, maxiter=100, tol=1e-2):
+        "Project model vector to convex set defined by bound information"
+        x_c_0 = x.copy()
+        x_c_1 = np.zerps_like(x)
+        maxiter = self.get_param(maxiter, self.maxiter)
+        tol = self.tol
+        lower_bound = self.lower_bound
+        upper_bound = self.upper_bound
+        a = self.a
+        b = self.b
+        for i in range(maxiter):
+            x_c_1 = self.clip_model(x=x_c_0,lower_bound=lower_bound, upper_bound=upper_bound)
+            x_c_1 = self.projection_plane(a=a, x=x_c_1, b=b)
+            if np.linalg.norm(x_c_1 - x_c_0) < tol:
+                break
+            x_c_0 = x_c_1
+        return x_c_1
 
 class empymod_IPinv:
 
@@ -187,6 +274,38 @@ class empymod_IPinv:
         assert self.nM == 4*nlayer
         return Prj_m, m_fix
 
+    def fix_sea(self, res_sea, chg_sea, tau_sea, c_sea):
+        ## return and set mapping for fixigin sea and basement resistivity
+        ## Assert there are no fix ing at this stage
+        nlayer = self.nlayer
+        nlayer_fix=1
+        nlayer_sum = nlayer+nlayer_fix
+        Prj_m_A = np.block([
+            [np.zeros(nlayer)], # sea water
+            [np.eye(nlayer)], # layers
+        ])
+        Prj_m=np.block([
+        [Prj_m_A, np.zeros((nlayer_sum, 3*nlayer))], # Resistivity
+        [np.zeros((nlayer_sum,  nlayer)), Prj_m_A, np.zeros((nlayer_sum, 2*nlayer))], # Chargeability
+        [np.zeros((nlayer_sum,2*nlayer)), Prj_m_A, np.zeros((nlayer_sum, nlayer))], # Time constant
+        [np.zeros((nlayer_sum,3*nlayer)), Prj_m_A], # Exponent C
+        ])
+        m_fix = np.r_[ 
+        np.log(res_sea), np.zeros(nlayer), # Resistivity
+        chg_sea, np.zeros(nlayer), # Chargeability
+        np.log(tau_sea),np.zeros(nlayer), # Time constant
+        c_sea,np.zeros(nlayer)# Exponent C
+        ]
+        assert len(m_fix) == 4*nlayer_sum
+        self.nlayer_fix = nlayer_fix
+        self.Prj_m = Prj_m
+        self.m_fix = m_fix
+        self.nP= Prj_m.shape[0]
+        self.nM= Prj_m.shape[1]
+        assert self.nP == 4*(nlayer+nlayer_fix)
+        assert self.nM == 4*nlayer
+        return Prj_m, m_fix
+
     def pelton_et_al(self, inp, p_dict):
         """ Pelton et al. (1978)."""
 
@@ -222,6 +341,13 @@ class empymod_IPinv:
         window_mat = self.window_mat
         ip_model = self.get_ip_model(model_vector)
         data = empymod.bipole(res=ip_model, **self.model_base)
+        if data.ndim == 3:
+            # Sum over transmitter and receiver dimensions (axis 1 and axis 2)
+            data=np.sum(data, axis=(1, 2))
+        elif data.ndim == 2:
+            # Sum over the transmitter dimension (axis 1)
+            data= np.sum(data, axis=1)
+
         self.nD = len(data)
         if cut_off is not None:
             times = self.model_base['freqtime']
@@ -293,6 +419,7 @@ class empymod_IPinv:
             mvec[3*nlayer:4*nlayer], self.cmin, self.cmax
             )
         return mvec_tmp
+
     def Japprox(self, model_vector, perturbation=0.1, min_perturbation=1e-3):
         delta_m = min_perturbation  # np.max([perturbation*m.mean(), min_perturbation])
 #        delta_m = perturbation  # np.max([perturbation*m.mean(), min_perturbation])
@@ -660,7 +787,9 @@ class empymod_IPinv:
         if ax is None:
             fig, ax = plt.subplots(2, 2, figsize=(12, 8))  # Create 2x2 grid of subplots
         else:
+            ax = np.array(ax)  # Convert ax to a NumPy array if it's not already
             ax = ax.flatten()  # Ensure ax is a flat array
+
 
         # Convert model vector to parameters
         model = self.get_ip_model(mvec)
@@ -1039,10 +1168,11 @@ class TEM_Signal_Process:
         rmp_time  = self.get_param(rmp_time, self.rmp_time)
         times_rec = self.get_param(times_rec, self.times_rec)
         time_step = self.get_param(time_step, self.time_step)
-        filter_linrmp = np.zeros_like(times_rec)
-        inds_rmp = times_rec <= rmp_time
+        times_filt = np.r_[0, times_rec[:-1]]
+        filter_linrmp = np.zeros_like(times_filt)
+        inds_rmp = times_filt <= rmp_time
         filter_linrmp[inds_rmp] =   1.0/float(inds_rmp.sum())
-        return filter_linrmp
+        return filter_linrmp, times_filt
     
     def filter_linear_rmp_rect(self, rmp_time=None):
         if rmp_time is None:
